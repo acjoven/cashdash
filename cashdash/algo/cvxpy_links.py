@@ -29,13 +29,17 @@ class CvxpyLinkReconstructor(LinkReconstructor):
     def reconstruct(self, splits: pd.DataFrame) -> List:
         # most transactions likely are non-split transactions, so they deserve to be dealt with quickly
         if len(splits) == 2:
-            return [
-                {
-                    SOURCE: splits.loc[splits[VALUE] < 0, ACCOUNT].values[0],
-                    TARGET: splits.loc[splits[VALUE] > 0, ACCOUNT].values[0],
-                    VALUE: max(splits[VALUE]),
-                }
-            ]
+            negative_splits = splits.loc[splits[VALUE] < 0, ACCOUNT]
+            positive_splits = splits.loc[splits[VALUE] > 0, ACCOUNT]
+            if len(negative_splits) == 1 and len(positive_splits) == 1:
+                return [
+                    {
+                        SOURCE: negative_splits.values[0],
+                        TARGET: positive_splits.values[0],
+                        VALUE: max(splits[VALUE]),
+                    }
+                ]
+            # If the simple case doesn't apply, fall through to the general solver
 
         # one node per account
         num_nodes = len(splits)
@@ -91,8 +95,13 @@ class CvxpyLinkReconstructor(LinkReconstructor):
         objective = cp.Minimize(cp.sum(cp.abs(edges)))
         prob = cp.Problem(objective, constraints)
 
-        prob.solve()
-        assert edges.value is not None
+        prob.solve(solver=cp.CLARABEL)
+        if edges.value is None:
+            # Fallback: try default solver
+            prob.solve()
+        if edges.value is None:
+            # Return empty links if solver fails
+            return []
         flows = np.around(
             edges.value, 2
         )  # two decimals should be enough for currencies

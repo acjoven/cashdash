@@ -2,8 +2,7 @@ from datetime import datetime
 from typing import List, Optional, Tuple
 
 import anytree
-import dash_core_components as dcc
-import dash_html_components as html
+from dash import dcc, html
 import numpy as np
 import pandas as pd
 from dash import Dash
@@ -342,7 +341,7 @@ class CashflowDashFactory(DashBlueprintFactory):
 
                 # merge with the non-asset splits, and also keep dummy account for later
                 df = pd.concat([asset_splits_folded, non_asset_splits], sort=True)
-                accounts = accounts.append(dummy_account, sort=True)
+                accounts = pd.concat([accounts, dummy_account.to_frame().T], sort=True)
 
             # determine links
             links = []
@@ -378,7 +377,7 @@ class CashflowDashFactory(DashBlueprintFactory):
                     if target_node is None:
                         # leave links with the dummy asset account as target the way they are
                         assert fold_asset_accounts
-                        new_links = new_links.append(row, ignore_index=True)
+                        new_links = pd.concat([new_links, row.to_frame().T], ignore_index=True)
                         continue
 
                     # trim the earliest two ancestors to get rid of the root account and the root expense/income/liability account
@@ -391,22 +390,23 @@ class CashflowDashFactory(DashBlueprintFactory):
                             new_links[TARGET] == target
                         )
                         if new_links.loc[filter].empty:
-                            new_links = new_links.append(
-                                pd.Series(
-                                    {SOURCE: source, TARGET: target, VALUE: row[VALUE]}
-                                ),
-                                ignore_index=True,
-                            )
+                            new_links = pd.concat([
+                                new_links,
+                                pd.DataFrame([{SOURCE: source, TARGET: target, VALUE: row[VALUE]}])
+                            ], ignore_index=True)
                         else:
                             new_links.loc[filter, VALUE] += row[VALUE]
                 links = new_links
+
+            # Ensure VALUE column is float type for numeric operations
+            links[VALUE] = links[VALUE].astype(float)
 
             # Create label for each node: account name and sum of money involved. Particularly for asset accounts, the
             # incoming amount of money must not equal the outgoing amount of money (people may save money or may make
             # bigger purchases with saved money). To make sense in the plot, the sum of money shown for an account
             # therefore needs to be the maximum of either incoming or outgoing money for each account.
-            sum_of_targets = links.groupby(TARGET).sum()
-            sum_of_sources = links.groupby(SOURCE).sum()
+            sum_of_targets = links.groupby(TARGET)[VALUE].sum()
+            sum_of_sources = links.groupby(SOURCE)[VALUE].sum()
             sum_per_account = pd.concat(
                 [sum_of_targets, sum_of_sources], axis=1, sort=True
             ).max(axis=1)
