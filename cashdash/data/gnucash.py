@@ -1,6 +1,6 @@
 from typing import Dict
 
-import gnucashxml
+from gnucashxml import gnucashxml
 import pandas as pd
 from anytree import Node
 
